@@ -277,57 +277,59 @@ class RelayerRegister {
   }
 
   getValidRelayers = async (relayers, ensSubdomainKey) => {
-    const relayerNameHashes = relayers.map((r) => namehash.hash(r.ensName))
+    const relayerNames = relayers.map((r) => r.ensName)
 
     // Deduplicate and record original indexes
-    const uniqueMap = new Map() // hash -> [original indexes]
-    relayerNameHashes.forEach((hash, index) => {
-      if (!uniqueMap.has(hash)) uniqueMap.set(hash, [])
-      uniqueMap.get(hash).push(index)
+    const uniqueMap = new Map() // name -> [original indexes]
+    relayerNames.forEach((name, index) => {
+      if (!uniqueMap.has(name)) uniqueMap.set(name, [])
+      uniqueMap.get(name).push(index)
     })
-    const uniqueHashes = Array.from(uniqueMap.keys())
+    const uniqueNames = Array.from(uniqueMap.keys())
 
-    const allRelayersData = new Array(relayerNameHashes.length)
+    const allRelayersData = new Array(relayerNames.length)
 
-    async function safeCall(hashes) {
-      if (hashes.length === 0) return []
+    async function safeCall(names) {
+      if (names.length === 0) return []
 
       try {
-        const data = await this.aggregator.methods.relayersData(hashes, subdomains).call({ gas: 30000000 })
+        const data = await this.aggregator.methods
+          .relayersData(names, subdomains)
+          .call({ gas: 30000000 })
         return data
       } catch (err) {
-        if (hashes.length === 1) {
-          // Single hash failed → skip this bad hash
-          console.warn(`Single hash failed, skipping: ${hashes[0]}`)
-          return [null] // return null as placeholder
+        if (names.length === 1) {
+          // Single name failed → skip this bad name
+          console.warn(`Single name failed, skipping: ${names[0]}`)
+          return [null]
         }
         // On failure, split in half and retry
-        console.warn(`Batch failed (${hashes.length} items), splitting into smaller batches...`)
-        const mid = Math.ceil(hashes.length / 2)
-        const left = await safeCall.call(this, hashes.slice(0, mid))
-        const right = await safeCall.call(this, hashes.slice(mid))
+        console.warn(`Batch failed (${names.length} items), splitting into smaller batches...`)
+        const mid = Math.ceil(names.length / 2)
+        const left = await safeCall.call(this, names.slice(0, mid))
+        const right = await safeCall.call(this, names.slice(mid))
         return [...left, ...right]
       }
     }
 
-    // Call in small batches (start with 4)
+    // Call in small batches
     const BATCH_SIZE = 20
-    for (let i = 0; i < uniqueHashes.length; i += BATCH_SIZE) {
-      const batchHashes = uniqueHashes.slice(i, i + BATCH_SIZE)
-      console.log(`Processing batch starting at index ${i}, size ${batchHashes.length}`)
+    for (let i = 0; i < uniqueNames.length; i += BATCH_SIZE) {
+      const batchNames = uniqueNames.slice(i, i + BATCH_SIZE)
+      console.log(`Processing batch starting at index ${i}, size ${batchNames.length}`)
 
-      const batchData = await safeCall.call(this, batchHashes)
+      const batchData = await safeCall.call(this, batchNames)
 
       // Write results back to original positions
-      batchHashes.forEach((hash, batchIdx) => {
-        const originalIndexes = uniqueMap.get(hash)
+      batchNames.forEach((name, batchIdx) => {
+        const originalIndexes = uniqueMap.get(name)
         originalIndexes.forEach((origIdx) => {
           allRelayersData[origIdx] = batchData[batchIdx]
         })
       })
     }
 
-    // Filter (handle nulls from failed hashes)
+    // Filter (handle nulls from failed names)
     const validRelayers = allRelayersData.reduce((acc, curr, index) => {
       if (curr === null) return acc // skip failed ones
       return this.filterRelayer(acc, curr, ensSubdomainKey, relayers[index])

@@ -162,9 +162,9 @@
   {
     "inputs": [
       {
-        "internalType": "bytes32[]",
+        "internalType": "string[]",
         "name": "_relayers",
-        "type": "bytes32[]"
+        "type": "string[]"
       },
       {
         "internalType": "string[]",
